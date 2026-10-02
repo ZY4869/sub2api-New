@@ -1027,6 +1027,29 @@ export default {
           override_disabled: '手工强制禁用'
         }
       },
+      // [local] Recorded output-image counts per account.
+      imageStats: {
+        title: '生图数量',
+        today: '今日 {count} 张',
+        total: '累计 {count} 张',
+        hint: '按本站保留的用量记录统计图片张数，一次生成多张分别计数；今日按服务器时区。日志清理会影响累计值，不含站外生成或未记录的测试图片。',
+        loadFailed: '生图统计加载失败，请刷新重试',
+      },
+      // [local] Renewal, compact view and image quota pools.
+      compactMode: '紧凑模式',
+      imageQuotaScope: '生图',
+      additionalQuotaPools: '附加额度池',
+      quotaPoolWindow: '{hours} 小时窗口：已用 {percent}%',
+      quotaPoolReset: '重置时间：{time}',
+      quotaPoolUnnamed: '额度池 {index}',
+      renewal: {
+        enabled: '自动续期',
+        cycle: '续期周期',
+        month: '按月',
+        year: '按年',
+        hint: '到期后有 {days} 天宽限期；期间产生正常业务调用或定时测试成功，按原到期日续期。需设置过期时间；已暂停的账号需手动恢复调度。',
+        inGrace: '宽限期中（剩 {days} 天）',
+      },
       autoPauseOnExpired: '过期自动暂停调度',
       autoPauseOnExpiredDesc: '启用后，账号过期将自动暂停调度',
 	  autoPause5hThreshold: '5h 用量阈值(%)',

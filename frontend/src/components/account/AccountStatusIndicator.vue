@@ -223,6 +223,8 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
 
 const formatScopeName = (scope: string): string => {
   const aliases: Record<string, string> = {
+    // [local] 独立生图冷却作用域。
+    'openai:image_generation': t('admin.accounts.imageQuotaScope'),
     // Claude 系列
     'claude-fable-5-1': 'CFable51',
     'claude-fable-5': 'CFable5',

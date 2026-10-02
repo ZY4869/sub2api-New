@@ -143,6 +143,7 @@ type AccountBillingSettingsRepository interface {
 		probeEnabled *bool,
 		rateSyncEnabled *bool,
 		rateMultiplier *float64,
+		expiresAt *int64, // [local] nil preserves; <= 0 clears.
 	) error
 }
 

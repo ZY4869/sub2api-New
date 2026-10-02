@@ -20,9 +20,10 @@ func (r *upstreamBillingProbeAdminRepo) ListShadowsByParent(context.Context, int
 
 type accountBillingSettingsAdminRepo struct {
 	*upstreamBillingProbeAccountRepo
-	concurrentRate   *float64
-	lastExplicitRate *float64
-	updateCalls      int
+	concurrentRate     *float64
+	lastExplicitRate   *float64
+	lastExplicitExpiry *int64
+	updateCalls        int
 }
 
 func (r *accountBillingSettingsAdminRepo) UpdateWithAccountBillingSettings(
@@ -31,6 +32,7 @@ func (r *accountBillingSettingsAdminRepo) UpdateWithAccountBillingSettings(
 	probeEnabled *bool,
 	rateSyncEnabled *bool,
 	rateMultiplier *float64,
+	expiresAt *int64,
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -63,6 +65,15 @@ func (r *accountBillingSettingsAdminRepo) UpdateWithAccountBillingSettings(
 	default:
 		updated.RateMultiplier = cloneAccountValuePointer(current.RateMultiplier)
 		r.lastExplicitRate = nil
+	}
+	r.lastExplicitExpiry = expiresAt
+	if expiresAt == nil {
+		updated.ExpiresAt = cloneAccountValuePointer(current.ExpiresAt)
+	} else if *expiresAt <= 0 {
+		updated.ExpiresAt = nil
+	} else {
+		expiry := time.Unix(*expiresAt, 0)
+		updated.ExpiresAt = &expiry
 	}
 	r.accounts[account.ID] = &updated
 	r.updateCalls++
@@ -912,4 +923,24 @@ func TestCreateAccountDropsOpenCodeGoManagedKeys(t *testing.T) {
 	require.NotContains(t, created.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
 	require.NotContains(t, created.Extra, OpenCodeGoUsageSnapshotExtraKey)
 	require.Equal(t, "value", created.Extra["custom"])
+}
+
+func TestUpdateAccountRoutesExpiryIntent(t *testing.T) {
+	initial := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	replacement := initial.AddDate(0, 1, 0).Unix()
+	clear := int64(0)
+	for _, intent := range []*int64{nil, &replacement, &clear} {
+		repo := &accountBillingSettingsAdminRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{99001: {ID: 99001, Name: "before", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, ExpiresAt: &initial}}}}
+		svc := &adminServiceImpl{accountRepo: repo}
+		got, err := svc.UpdateAccount(context.Background(), 99001, &UpdateAccountInput{Name: "after", ExpiresAt: intent})
+		require.NoError(t, err)
+		require.Equal(t, intent, repo.lastExplicitExpiry)
+		if intent == nil {
+			require.Equal(t, initial, *got.ExpiresAt)
+		} else if *intent == 0 {
+			require.Nil(t, got.ExpiresAt)
+		} else {
+			require.Equal(t, *intent, got.ExpiresAt.Unix())
+		}
+	}
 }

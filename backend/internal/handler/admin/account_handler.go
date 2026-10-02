@@ -2676,7 +2676,8 @@ func (h *AccountHandler) GetTodayStats(c *gin.Context) {
 
 // BatchTodayStatsRequest 批量今日统计请求体。
 type BatchTodayStatsRequest struct {
-	AccountIDs []int64 `json:"account_ids" binding:"required"`
+	AccountIDs        []int64 `json:"account_ids" binding:"required"`
+	IncludeImageStats bool    `json:"include_image_stats"` // [local] Optional retained-log counts.
 }
 
 type BatchUsageRequest struct {
@@ -2695,11 +2696,15 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 
 	accountIDs := normalizeInt64IDList(req.AccountIDs)
 	if len(accountIDs) == 0 {
-		response.Success(c, gin.H{"stats": map[string]any{}})
+		payload := gin.H{"stats": map[string]any{}}
+		if req.IncludeImageStats {
+			payload["image_stats"] = map[string]any{}
+		}
+		response.Success(c, payload)
 		return
 	}
 
-	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs)
+	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs, req.IncludeImageStats)
 	if cached, ok := accountTodayStatsBatchCache.Get(cacheKey); ok {
 		if cached.ETag != "" {
 			c.Header("ETag", cached.ETag)
@@ -2721,6 +2726,15 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 	}
 
 	payload := gin.H{"stats": stats}
+	// [local] One batched aggregate only when the image-count column is visible.
+	if req.IncludeImageStats {
+		images, imageErr := h.accountUsageService.GetImageStatsBatch(c.Request.Context(), accountIDs)
+		if imageErr != nil {
+			response.ErrorFrom(c, imageErr)
+			return
+		}
+		payload["image_stats"] = images
+	}
 	cached := accountTodayStatsBatchCache.Set(cacheKey, payload)
 	if cached.ETag != "" {
 		c.Header("ETag", cached.ETag)

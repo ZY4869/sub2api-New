@@ -214,6 +214,16 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  // [local] 新建默认到期日与续期配置共用所有创建路径。
+  it('defaults a new account to one calendar month and monthly renewal', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-01-31T12:34:00'))
+    const wrapper = await submitApiKeyAccount('openai')
+    expect(createAccountMock.mock.calls[0]?.[0]?.expires_at).toBe(new Date('2026-02-28T12:34:00').getTime() / 1000)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).toMatchObject({ auto_renewal_enabled: true, auto_renewal_cycle: 'month', auto_renewal_grace_days: 7 })
+    wrapper.unmount()
+  })
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))

@@ -59,8 +59,9 @@ const PROVIDER_ICONS: Record<Provider, IconData> = {
   // antigravity / kimi / zhipu / deepseek 的官方 logo mark 搬自
   // src/components/common/PlatformIcon.vue，保持同步。
   antigravity: {
+    // [local] @lobehub/icons@5.21.0 Mono (MIT), shared with PlatformIcon.
     paths: [
-      'M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z',
+      'M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z',
     ],
   },
   kimi: {
@@ -84,6 +85,7 @@ const PROVIDER_ICONS: Record<Provider, IconData> = {
     ],
   },
   opencode_go: {
+    // [local] @lobehub/icons@5.21.0 Mono (MIT), shared with PlatformIcon.
     paths: [
       'M16 6H8v12h8V6zm4 16H4V2h16v20z',
     ],

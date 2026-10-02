@@ -15,7 +15,8 @@ import (
 )
 
 func TestUpdateExtraCodexDisplaySnapshotsAvoidSchedulerOutbox(t *testing.T) {
-	for _, key := range []string{"codex_credits_snapshot", "codex_referral_snapshot"} {
+	// [local] 生图诊断快照同样不入调度 outbox。
+	for _, key := range []string{"codex_credits_snapshot", "codex_referral_snapshot", "codex_image_headers_snapshot"} {
 		for _, tc := range []struct {
 			name             string
 			value            any

@@ -473,3 +473,24 @@ describe('OpenAIQuotaResetCell 自动用卡运行态', () => {
     wrapper.unmount()
   })
 })
+
+// [local] 上游返回的附加额度池按名称与窗口通用渲染。
+it('shows additional quota pool windows after a query', async () => {
+  vi.mocked(refreshOpenAIQuota).mockResolvedValue({
+    fetched_at: 1770000000, cache_persisted: true,
+    additional_rate_limits: [{ limit_name: 'Image generation', metered_feature: 'images', rate_limit: {
+      allowed: false, limit_reached: true,
+      primary_window: { used_percent: 100, limit_window_seconds: 18000, reset_after_seconds: 3600, reset_at: 1770003600 },
+      secondary_window: { used_percent: 25, limit_window_seconds: 604800, reset_after_seconds: 7200, reset_at: 1770007200 }
+    } }]
+  })
+  const wrapper = mount(OpenAIQuotaResetCell, { props: { account: makeAccount({}) } })
+  expect(wrapper.find('[data-testid="additional-quota-pools"]').exists()).toBe(false)
+  await wrapper.get('[data-testid="codex-credits"]').trigger('click')
+  await flushPromises()
+  const pools = wrapper.get('[data-testid="additional-quota-pools"]')
+  expect(pools.text()).toContain('Image generation')
+  expect(pools.text()).toContain(new Date(1770003600 * 1000).toLocaleString())
+  expect(pools.text()).toContain(new Date(1770007200 * 1000).toLocaleString())
+  wrapper.unmount()
+})

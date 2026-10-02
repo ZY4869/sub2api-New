@@ -82,8 +82,14 @@ func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
 // maxAccountTestMediaBytes caps inbound data-URL payloads for admin tests (~8 MiB).
 const maxAccountTestMediaBytes = 8 << 20
 
+// [local] defaultAccountTestPrompt 是账号连通性测试的默认文本提示。
+// 指示模型只回固定短串，让测试响应可预期且尽量少消耗 output token；
+// 定时唤醒计划（ScheduledTestRunnerService）也走这条路径。
+// 注意：Grok 配额探测（grok_quota_service.go 的 grokQuotaProbeInput）是另一套用途，不共用本常量。
+const defaultAccountTestPrompt = "Output exactly: OK"
+
 const (
-	defaultGeminiTextTestPrompt  = "hi"
+	defaultGeminiTextTestPrompt  = defaultAccountTestPrompt
 	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultOpenAIImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultGrokImageTestPrompt   = "Generate a cute orange cat astronaut sticker on a clean pastel background."
@@ -327,7 +333,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": defaultAccountTestPrompt,
 						"cache_control": map[string]string{
 							"type": "ephemeral",
 						},
@@ -705,7 +711,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": defaultAccountTestPrompt,
 					},
 				},
 			},
@@ -2768,7 +2774,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": defaultAccountTestPrompt,
 					},
 				},
 			},
@@ -2790,7 +2796,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[string]any {
 	testPrompt := strings.TrimSpace(prompt)
 	if testPrompt == "" {
-		testPrompt = "hi"
+		testPrompt = defaultAccountTestPrompt
 	}
 
 	return map[string]any{

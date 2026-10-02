@@ -29,7 +29,8 @@ func isPinnedCodexModelsAccountUsable(account *Account) bool {
 	if account == nil || !account.IsActive() || !account.Schedulable {
 		return false
 	}
-	if account.AutoPauseOnExpired && account.ExpiresAt != nil && !account.ExpiresAt.After(time.Now()) {
+	// [local] 固定账号清单遵循自动续期宽限期。
+	if account.AutoPauseOnExpired && account.ExpiresAt != nil && !account.ExpiresAt.After(time.Now()) && !account.IsWithinRenewalGrace(time.Now()) {
 		return false
 	}
 	return true

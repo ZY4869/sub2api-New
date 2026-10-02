@@ -1042,6 +1042,11 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.OpenAIAutoResetCredit7dThresholdExtraKey,
 		service.OpenAIAutoResetCreditStateExtraKey,
 		"model_rate_limits",
+		// [local] 自动续期宽限期判定必须进投影：热路径 Account.IsSchedulable 靠这两个键
+		// 判断"已过期但仍在宽限期内"。裁掉它们，走调度快照的请求会把宽限期账号直接判为
+		// 过期不可调度，宽限期内永远产生不了调用，续期信号也就永远不会出现。
+		service.AccountRenewalEnabledExtraKey,
+		service.AccountRenewalGraceDaysExtraKey,
 		service.UpstreamBillingProbeExtraKey,
 		service.GrokMediaEligibleExtraKey,
 		"grok_billing_snapshot",

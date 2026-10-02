@@ -29,11 +29,11 @@ type createScheduledTestPlanRequest struct {
 }
 
 type updateScheduledTestPlanRequest struct {
-	ModelID        string `json:"model_id"`
-	CronExpression string `json:"cron_expression"`
-	Enabled        *bool  `json:"enabled"`
-	MaxResults     int    `json:"max_results"`
-	AutoRecover    *bool  `json:"auto_recover"`
+	ModelID        *string `json:"model_id"` // [local] 空字符串恢复平台默认；省略字段保留原模型。
+	CronExpression string  `json:"cron_expression"`
+	Enabled        *bool   `json:"enabled"`
+	MaxResults     int     `json:"max_results"`
+	AutoRecover    *bool   `json:"auto_recover"`
 }
 
 // ListByAccount GET /admin/accounts/:id/scheduled-test-plans
@@ -102,8 +102,9 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if req.ModelID != "" {
-		existing.ModelID = req.ModelID
+	// [local] 批量覆盖时允许显式清空旧计划模型。
+	if req.ModelID != nil {
+		existing.ModelID = *req.ModelID
 	}
 	if req.CronExpression != "" {
 		existing.CronExpression = req.CronExpression

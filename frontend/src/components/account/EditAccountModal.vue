@@ -1737,6 +1737,21 @@
           {{ t('admin.accounts.expiresAtHint') }}
           {{ t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone }) }}
         </p>
+        <!-- [local] 自动续期使用首次到期日作为日历锚点。 -->
+        <div class="mt-3 space-y-2">
+          <label class="flex items-center gap-2 text-sm">
+            <input v-model="autoRenewalEnabled" type="checkbox" role="switch" class="rounded border-gray-300 text-primary-600" />
+            {{ t('admin.accounts.renewal.enabled') }}
+          </label>
+          <label v-if="autoRenewalEnabled" class="flex items-center gap-2 text-sm">
+            {{ t('admin.accounts.renewal.cycle') }}
+            <select v-model="autoRenewalCycle" class="input w-auto">
+              <option value="month">{{ t('admin.accounts.renewal.month') }}</option>
+              <option value="year">{{ t('admin.accounts.renewal.year') }}</option>
+            </select>
+          </label>
+          <p class="input-hint">{{ t('admin.accounts.renewal.hint', { days: autoRenewalGraceDays }) }}</p>
+        </div>
       </div>
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
@@ -3181,6 +3196,8 @@ import {
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
+// [local] 自动续期配置。
+import { readAccountRenewal, withAccountRenewal } from '@/components/account/accountRenewal'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
@@ -3611,6 +3628,12 @@ const loadGrokMediaEligibility = async (accountID: number): Promise<GrokMediaEli
 
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(false)
+// [local] 保存打开时的原值，避免覆盖后台续期。
+const originalExpiresAt = ref<number | null>(null)
+const originalRenewal = ref(readAccountRenewal())
+const autoRenewalEnabled = ref(false)
+const autoRenewalCycle = ref<'month' | 'year'>('month')
+const autoRenewalGraceDays = ref(7)
 const autoPause5hThreshold = ref<number | null>(null)
 const autoPause7dThreshold = ref<number | null>(null)
 const autoPause5hDisabled = ref(false)
@@ -4133,6 +4156,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     : 'active'
   form.group_ids = newAccount.group_ids || []
   form.expires_at = newAccount.expires_at ?? null
+  // [local] 续期配置回填及编辑基线。
+  originalExpiresAt.value = form.expires_at
+  originalRenewal.value = readAccountRenewal(newAccount.extra)
+  autoRenewalEnabled.value = originalRenewal.value.enabled
+  autoRenewalCycle.value = originalRenewal.value.cycle
+  autoRenewalGraceDays.value = originalRenewal.value.graceDays
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
@@ -5149,7 +5178,10 @@ const handleSubmit = async () => {
     if (updatePayload.proxy_id === null) {
       updatePayload.proxy_id = 0
     }
-    if (form.expires_at === null) {
+    // [local] 未手工修改时不发送过期时间，后台可能已经续期。
+    if (form.expires_at === originalExpiresAt.value) {
+      delete updatePayload.expires_at
+    } else if (form.expires_at === null) {
       updatePayload.expires_at = 0
     }
     // load_factor: 空值/NaN/0/负数 时发送 0（后端约定 <= 0 = 清除）
@@ -5841,6 +5873,12 @@ const handleSubmit = async () => {
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
+    }
+
+    // [local] 续期配置仅在变动时写回，保留原有宽限天数。
+    if (autoRenewalEnabled.value !== originalRenewal.value.enabled || autoRenewalCycle.value !== originalRenewal.value.cycle) {
+      const extra = (updatePayload.extra as Record<string, unknown> | undefined) ?? props.account.extra
+      updatePayload.extra = withAccountRenewal(extra, { enabled: autoRenewalEnabled.value, cycle: autoRenewalCycle.value, graceDays: autoRenewalGraceDays.value })
     }
 
     // 上游ID头名只在改动时写回 extra，避免用弹窗打开时的快照覆盖运行态键。

@@ -3073,6 +3073,21 @@
           {{ t('admin.accounts.expiresAtHint') }}
           {{ t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone }) }}
         </p>
+        <!-- [local] 自动续期使用首次到期日作为日历锚点。 -->
+        <div class="mt-3 space-y-2">
+          <label class="flex items-center gap-2 text-sm">
+            <input v-model="autoRenewalEnabled" type="checkbox" role="switch" class="rounded border-gray-300 text-primary-600" />
+            {{ t('admin.accounts.renewal.enabled') }}
+          </label>
+          <label v-if="autoRenewalEnabled" class="flex items-center gap-2 text-sm">
+            {{ t('admin.accounts.renewal.cycle') }}
+            <select v-model="autoRenewalCycle" class="input w-auto">
+              <option value="month">{{ t('admin.accounts.renewal.month') }}</option>
+              <option value="year">{{ t('admin.accounts.renewal.year') }}</option>
+            </select>
+          </label>
+          <p class="input-hint">{{ t('admin.accounts.renewal.hint', { days: autoRenewalGraceDays }) }}</p>
+        </div>
       </div>
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
@@ -3984,6 +3999,8 @@ import {
 } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
+// [local] 自动续期配置。
+import { withAccountRenewal } from '@/components/account/accountRenewal'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -4028,8 +4045,10 @@ const oauthStepTitle = computed(() => {
 const upstreamRequestIdHeader = ref('')
 const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefined>(extra: T): T | Record<string, unknown> => {
   const name = upstreamRequestIdHeader.value.trim()
-  if (!name) return extra
-  return { ...(extra || {}), upstream_request_id_header: name }
+  // [local] 所有创建路径统一附加续期配置。
+  const renewalExtra = withAccountRenewal(extra, { enabled: autoRenewalEnabled.value, cycle: autoRenewalCycle.value, graceDays: autoRenewalGraceDays })
+  if (!name) return renewalExtra
+  return { ...renewalExtra, upstream_request_id_header: name }
 }
 
 const baseUrlHint = computed(() => {
@@ -4451,6 +4470,10 @@ const applyGrokOAuthUpstreamConfig = (credentials: Record<string, unknown>) => {
 }
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
+// [local] 只对新建账号默认开启自动续期。
+const autoRenewalEnabled = ref(true)
+const autoRenewalCycle = ref<'month' | 'year'>('month')
+const autoRenewalGraceDays = 7
 const openaiPassthroughEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
@@ -4755,7 +4778,7 @@ const form = reactive({
   priority: 1,
   rate_multiplier: 1,
   group_ids: [] as number[],
-  expires_at: null as number | null
+  expires_at: getAccountExpiryTimestamp(1) as number | null, // [local]
 })
 
 // Helper to check if current type needs OAuth flow
@@ -5340,7 +5363,10 @@ const resetForm = () => {
   form.priority = 1
   form.rate_multiplier = 1
   form.group_ids = []
-  form.expires_at = null
+  // [local] 重置新建表单的默认有效期和续期配置。
+  form.expires_at = getAccountExpiryTimestamp(1)
+  autoRenewalEnabled.value = true
+  autoRenewalCycle.value = 'month'
   accountCategory.value = 'oauth-based'
   addMethod.value = 'oauth'
   accountMode.value = 'payg'

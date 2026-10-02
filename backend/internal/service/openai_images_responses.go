@@ -1911,7 +1911,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 				Message:            upstreamMsg,
 			})
 			shouldDisable := s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, upstreamModel)
-			return nil, s.newOpenAIAccountFailoverError(
+			// [local] 长生图冷却直接切号，不占通用 OAuth 重试窗口。
+			return nil, s.newOpenAIImagesAccountFailoverError(
+				upstreamCtx, upstreamReq.URL.Path,
 				account,
 				resp.StatusCode,
 				resp.Header,
@@ -2169,6 +2171,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 			false,
 		)
 	}
+	// [local] 流内额度错误保留原响应/切号语义，但独立冷却生图池。
+	s.coolOpenAIImagesInBandQuota(ctx, account, upstreamErr, headers)
 	if !retryable || responseWritten {
 		return err
 	}

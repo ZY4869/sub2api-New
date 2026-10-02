@@ -925,6 +925,29 @@ export default {
           override_disabled: 'Manually forced disabled'
         }
       },
+      // [local] Recorded output-image counts per account.
+      imageStats: {
+        title: 'Image count',
+        today: 'Today: {count}',
+        total: 'Total: {count}',
+        hint: 'Counts output images in retained local usage records, including multiple images per request. Today uses the server timezone. Log cleanup affects totals; off-site generation and unrecorded test images are excluded.',
+        loadFailed: 'Failed to load image counts. Refresh to retry.',
+      },
+      // [local] Renewal, compact view and image quota pools.
+      compactMode: 'Compact mode',
+      imageQuotaScope: 'Images',
+      additionalQuotaPools: 'Additional quota pools',
+      quotaPoolWindow: '{hours}-hour window: {percent}% used',
+      quotaPoolReset: 'Resets at: {time}',
+      quotaPoolUnnamed: 'Quota pool {index}',
+      renewal: {
+        enabled: 'Auto renewal',
+        cycle: 'Renewal cycle',
+        month: 'Monthly',
+        year: 'Yearly',
+        hint: 'A {days}-day grace period follows expiry. Successful usage or a scheduled test renews from the original expiry date. An expiry date is required; paused accounts need scheduling re-enabled manually.',
+        inGrace: 'Grace period ({days} days left)',
+      },
       autoPauseOnExpired: 'Auto Pause On Expired',
       autoPauseOnExpiredDesc: 'When enabled, the account will auto pause scheduling after it expires',
 	  autoPause5hThreshold: '5h Usage Threshold (%)',

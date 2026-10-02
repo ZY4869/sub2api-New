@@ -64,11 +64,12 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
-	"codex_usage_updated_at":     {},
-	"codex_credits_snapshot":     {},
-	"codex_referral_snapshot":    {},
-	"grok_billing_snapshot":      {},
-	"session_window_utilization": {},
+	"codex_image_headers_snapshot": {}, // [local] 生图诊断不改变调度阈值。
+	"codex_usage_updated_at":       {},
+	"codex_credits_snapshot":       {},
+	"codex_referral_snapshot":      {},
+	"grok_billing_snapshot":        {},
+	"session_window_utilization":   {},
 }
 
 const postgresParameterBatchSize = 50000
@@ -439,7 +440,8 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
-	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier)
+	// [local] General callers retain explicit expiry updates, including precision.
+	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier, true)
 }
 
 // UpdateWithAccountBillingSettings applies an admin account edit while
@@ -451,8 +453,18 @@ func (r *accountRepository) UpdateWithAccountBillingSettings(
 	probeEnabled *bool,
 	rateSyncEnabled *bool,
 	rateMultiplier *float64,
+	expiresAt *int64, // [local] nil preserves the expiry written by automatic renewal.
 ) error {
-	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier)
+	// [local] Carry explicit admin intent; omission must not rewrite a renewed date.
+	if account != nil && expiresAt != nil {
+		if *expiresAt > 0 {
+			expiry := time.Unix(*expiresAt, 0)
+			account.ExpiresAt = &expiry
+		} else {
+			account.ExpiresAt = nil
+		}
+	}
+	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier, expiresAt != nil)
 }
 
 func (r *accountRepository) updateAccount(
@@ -461,6 +473,7 @@ func (r *accountRepository) updateAccount(
 	explicitProbeEnabled *bool,
 	explicitRateSyncEnabled *bool,
 	explicitRateMultiplier *float64,
+	updateExpiry bool,
 ) error {
 	if account == nil {
 		return nil
@@ -492,6 +505,7 @@ func (r *accountRepository) updateAccount(
 		explicitProbeEnabled,
 		explicitRateSyncEnabled,
 		explicitRateMultiplier,
+		updateExpiry,
 	)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
@@ -506,6 +520,9 @@ func (r *accountRepository) updateAccount(
 	}
 
 	account.UpdatedAt = updated.UpdatedAt
+	// [local] The caller must observe the expiry and managed state actually saved.
+	account.ExpiresAt = updated.ExpiresAt
+	account.Extra = copyJSONMap(updated.Extra)
 	// 普通账号编辑（如 model_mapping / credentials）也需要立即刷新单账号快照，
 	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
 	if contextTx == nil {
@@ -521,6 +538,7 @@ func (r *accountRepository) updateLockedAccount(
 	explicitProbeEnabled *bool,
 	explicitRateSyncEnabled *bool,
 	explicitRateMultiplier *float64,
+	updateExpiry bool,
 ) (*dbent.Account, error) {
 	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled)
 	if err != nil {
@@ -566,11 +584,15 @@ func (r *accountRepository) updateLockedAccount(
 	} else {
 		builder.ClearLastUsedAt()
 	}
-	if account.ExpiresAt != nil {
-		builder.SetExpiresAt(*account.ExpiresAt)
-	} else {
-		builder.ClearExpiresAt()
+	// [local] Omission is different from an explicit clear.
+	if updateExpiry {
+		if account.ExpiresAt != nil {
+			builder.SetExpiresAt(*account.ExpiresAt)
+		} else {
+			builder.ClearExpiresAt()
+		}
 	}
+
 	if account.RateLimitedAt != nil {
 		builder.SetRateLimitedAt(*account.RateLimitedAt)
 	} else {
@@ -670,7 +692,13 @@ func lockAndMergeAccountProbeExtra(
 				false
 			),
 			extra -> 'opencode_go_usage_auto_refresh',
-			extra -> 'opencode_go_usage_snapshot'
+			extra -> 'opencode_go_usage_snapshot',
+			-- [local] Managed renewal/image state is read under the same edit lock.
+			jsonb_build_object(
+				'auto_renewal_anchor_at', extra->'auto_renewal_anchor_at',
+				'auto_renewal_cycles', extra->'auto_renewal_cycles',
+				'auto_renewal_last_at', extra->'auto_renewal_last_at',
+				'openai:image_generation', extra->'model_rate_limits'->'openai:image_generation')
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -699,6 +727,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSnapshot          []byte
 		currentOpenCodeAutoRefresh     []byte
 		currentOpenCodeSnapshot        []byte
+		currentRenewalAndImageState    []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -713,6 +742,7 @@ func lockAndMergeAccountProbeExtra(
 		&opencodeGroupIdentityUnchanged,
 		&currentOpenCodeAutoRefresh,
 		&currentOpenCodeSnapshot,
+		&currentRenewalAndImageState,
 	); err != nil {
 		return nil, err
 	}
@@ -720,7 +750,10 @@ func lockAndMergeAccountProbeExtra(
 		return nil, err
 	}
 
-	extra := copyJSONMap(normalizeJSONMap(account.Extra))
+	extra, err := mergeAccountRenewalAndImageState(copyJSONMap(normalizeJSONMap(account.Extra)), currentRenewalAndImageState)
+	if err != nil {
+		return nil, err
+	}
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
@@ -1498,7 +1531,8 @@ func (r *accountRepository) SetGrokCredentialErrorIfMatch(
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW())
 			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW())
 			AND (a.overload_until IS NULL OR a.overload_until <= NOW())
-			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW())
+			-- [local] 自动续期宽限期仍可调度。
+			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW() OR `+accountRenewalInGraceSQL("a.extra", "a.expires_at", "NOW()")+`)
 			AND a.credentials = $7::jsonb
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 			AND ($2 <> $9 OR (
@@ -2086,7 +2120,8 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 			AND a.status = $2
 			AND a.schedulable = TRUE
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= $3)
-			AND (a.expires_at IS NULL OR a.expires_at > $3 OR a.auto_pause_on_expired = FALSE)
+			-- [local] 复用 $3，保持容量查询参数契约。
+			AND (a.expires_at IS NULL OR a.expires_at > $3 OR a.auto_pause_on_expired = FALSE OR `+accountRenewalInGraceSQL("a.extra", "a.expires_at", "$3")+`)
 			AND (a.overload_until IS NULL OR a.overload_until <= $3)
 			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= $3)
 		ORDER BY ag.group_id ASC, ag.priority ASC, a.priority ASC, a.id ASC
@@ -2429,6 +2464,11 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 		return err
 	}
 
+	// [local] All image cooldown producers share an atomic monotonic write.
+	if scope == accountImageCooldownScope {
+		return r.extendImageCooldown(ctx, id, resetAt, raw)
+	}
+
 	client := clientFromContext(ctx, r.client)
 	result, err := client.ExecContext(
 		ctx,
@@ -2530,7 +2570,8 @@ func (r *accountRepository) SetGrokCredentialTempUnschedulableIfMatch(
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW())
 			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW())
 			AND (a.overload_until IS NULL OR a.overload_until <= NOW())
-			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW())
+			-- [local] 自动续期宽限期仍可调度。
+			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW() OR `+accountRenewalInGraceSQL("a.extra", "a.expires_at", "NOW()")+`)
 			AND a.credentials = $7::jsonb
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 		RETURNING a.id
@@ -2699,6 +2740,11 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 			AND auto_pause_on_expired = TRUE
 			AND expires_at IS NOT NULL
 			AND expires_at <= $1
+			-- [local] 自动续期宽限期内的账号先不暂停：宽限期就是留给"过期后仍能调用"的窗口，
+			-- 这里一旦把 schedulable 置 FALSE，账号在宽限期内产生不了任何调用，
+			-- 续期服务所依赖的"调用正常"信号就永远等不到，形成死锁。
+			-- 宽限期耗尽后条件自然不再成立，账号会按上游原有行为被暂停。
+			AND NOT `+accountRenewalInGraceSQL("extra", "expires_at", "$1")+`
 		RETURNING id
 	`, now)
 	if err != nil {
@@ -3441,6 +3487,8 @@ func notExpiredPredicate(now time.Time) dbpredicate.Account {
 		dbaccount.ExpiresAtIsNil(),
 		dbaccount.ExpiresAtGT(now),
 		dbaccount.AutoPauseOnExpiredEQ(false),
+		// [local] 所有 ent 调度查询和快照重建共享宽限期规则。
+		accountRenewalGracePredicate(now),
 	)
 }
 

@@ -134,6 +134,11 @@
                         <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
                       </button>
 
+                      <!-- [local] 账号表紧凑模式持久化到当前浏览器。 -->
+                      <button class="account-tools-menu-item" role="switch" :aria-checked="compact" @click="compact = !compact">
+                        <span class="flex-1 text-left">{{ t('admin.accounts.compactMode') }}</span>
+                        <Icon v-if="compact" name="check" size="sm" class="text-primary-500" />
+                      </button>
                       <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
                       <div class="px-2 py-2">
                         <div class="flex items-center justify-between gap-3">
@@ -181,6 +186,7 @@
           :selecting-all="selectingAllResults"
           :all-results-selected="allResultsSelected"
           @delete="handleBulkDelete"
+          @bulk-schedule="showBulkSchedule = true"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
@@ -191,7 +197,8 @@
           @select-all-results="handleSelectAllResults"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
-        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <!-- [local] 紧凑表格保留用量信息。 -->
+        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden" :class="{ 'accounts-compact': compact }">
         <DataTable
           ref="dataTableRef"
           :columns="cols"
@@ -203,7 +210,7 @@
           default-sort-key="name"
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
-          :estimate-row-height="156"
+          :estimate-row-height="compact ? 92 : 156"
           :overscan="5"
           :virtualize-threshold="50"
         >
@@ -258,7 +265,7 @@
           <template #cell-platform_type="{ row }">
             <div class="flex min-w-0 flex-col gap-1">
               <div class="flex flex-wrap items-center gap-1">
-                <PlatformTypeBadge :platform="row.platform" :type="row.type"
+                <PlatformTypeBadge :platform="row.platform" :type="row.type" :compact="compact"
                   :auth-mode="getOpenAIAuthMode(row)"
                   :plan-type="getAccountPlanType(row)"
                   :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
@@ -295,6 +302,10 @@
             <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
+          </template>
+          <!-- [local] Recorded output counts, batched across the current page. -->
+          <template #cell-image_stats="{ row }">
+            <AccountImageStatsCell :stats="imageStatsByAccountId[String(row.id)] ?? null" :loading="todayStatsLoading" :error="todayStatsError" />
           </template>
           <template #cell-today_stats="{ row }">
             <AccountTodayStatsCell
@@ -417,6 +428,9 @@
           <template #cell-expires_at="{ row, value }">
             <div class="flex flex-col items-start gap-1">
               <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatExpiresAt(value) }}</span>
+              <!-- [local] 自动续期及宽限期状态。 -->
+              <span v-if="readAccountRenewal(row.extra).enabled" class="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{{ t('admin.accounts.renewal.enabled') }}</span>
+              <span v-if="accountRenewalGraceDaysRemaining(value, row.extra, upstreamBillingNow) !== null" class="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{{ t('admin.accounts.renewal.inGrace', { days: accountRenewalGraceDaysRemaining(value, row.extra, upstreamBillingNow) }) }}</span>
               <div v-if="isExpired(value) || (row.auto_pause_on_expired && value)" class="flex items-center gap-1">
                 <span
                   v-if="isExpired(value)"
@@ -459,6 +473,8 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <!-- [local] 批量定时唤醒。 -->
+    <BulkScheduledTestModal :show="showBulkSchedule" :account-ids="selIds" @close="showBulkSchedule = false" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
@@ -517,10 +533,17 @@ import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vu
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+// [local] 本地账号管理增强。
+import BulkScheduledTestModal from '@/components/admin/account/BulkScheduledTestModal.vue'
+import { useAccountsDensity } from '@/composables/useAccountsDensity'
+import { readAccountRenewal, accountRenewalGraceDaysRemaining } from '@/components/account/accountRenewal'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
+// [local] Per-account recorded image counts.
+import AccountImageStatsCell from '@/components/account/AccountImageStatsCell.vue'
+import type { AccountImageStats } from '@/api/admin/accounts'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
@@ -616,6 +639,9 @@ const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const showSchedulePanel = ref(false)
+// [local]
+const showBulkSchedule = ref(false)
+const { compact } = useAccountsDensity()
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
@@ -703,6 +729,7 @@ const autoRefreshFetching = ref(false)
 const AUTO_REFRESH_SILENT_WINDOW_MS = 15000
 const autoRefreshSilentUntil = ref(0)
 const hasPendingListSync = ref(false)
+const imageStatsByAccountId = ref<Record<string, AccountImageStats>>({}) // [local]
 const todayStatsByAccountId = ref<Record<string, WindowStats>>({})
 const todayStatsLoading = ref(false)
 const todayStatsError = ref<string | null>(null)
@@ -869,11 +896,8 @@ const queueBatchedUsage = (account: Account, options?: { force?: boolean }) => {
 }
 
 const refreshTodayStatsBatch = async () => {
-  // Why this checks both columns:
-  // - today_stats column shows dedicated today's metrics.
-  // - usage column also embeds today's stats for Key/Bedrock rows.
-  // So we only skip fetching when BOTH columns are hidden.
-  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
+  // [local] Reuse the batch for today, usage and image-count columns; skip when all are hidden.
+  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage') && hiddenColumns.has('image_stats')) {
     todayStatsLoading.value = false
     todayStatsError.value = null
     return
@@ -883,6 +907,7 @@ const refreshTodayStatsBatch = async () => {
   const reqSeq = ++todayStatsReqSeq.value
   if (accountIDs.length === 0) {
     todayStatsByAccountId.value = {}
+    imageStatsByAccountId.value = {}
     todayStatsError.value = null
     todayStatsLoading.value = false
     return
@@ -892,7 +917,7 @@ const refreshTodayStatsBatch = async () => {
   todayStatsError.value = null
 
   try {
-    const result = await adminAPI.accounts.getBatchTodayStats(accountIDs)
+    const result = await adminAPI.accounts.getBatchTodayStats(accountIDs, !hiddenColumns.has('image_stats'))
     if (reqSeq !== todayStatsReqSeq.value) return
     const serverStats = result.stats ?? {}
     const nextStats: Record<string, WindowStats> = {}
@@ -901,6 +926,7 @@ const refreshTodayStatsBatch = async () => {
       nextStats[key] = serverStats[key] ?? buildDefaultTodayStats()
     }
     todayStatsByAccountId.value = nextStats
+    imageStatsByAccountId.value = result.image_stats ?? {}
   } catch (error) {
     if (reqSeq !== todayStatsReqSeq.value) return
     todayStatsError.value = 'Failed'
@@ -1049,7 +1075,7 @@ const toggleColumn = (key: string) => {
     hiddenColumns.add(key)
   }
   saveColumnsToStorage()
-  if ((key === 'today_stats' || key === 'usage') && wasHidden) {
+  if ((key === 'today_stats' || key === 'usage' || key === 'image_stats') && wasHidden) {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
@@ -1793,7 +1819,8 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'image_stats', label: t('admin.accounts.imageStats.title'), sortable: false } // [local]
   ]
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
@@ -2588,6 +2615,9 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* [local] 紧凑模式减少单元格垂直留白。 */
+.accounts-compact :deep(td) { @apply py-1.5; }
+
 .account-tools-menu-item {
   @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700;
 }

@@ -414,6 +414,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
+	// [local] 续期状态只能由后台维护，创建/导入只接受规范化配置。
+	stripAccountRenewalManagedExtra(accountExtra)
+	NormalizeAccountRenewalExtra(accountExtra)
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -686,6 +689,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OpenCodeGoUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageSnapshotExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
+		// [local] 不允许表单/导入覆盖续期服务的锚点状态。
+		stripAccountRenewalManagedExtra(normalizedExtra)
 		for _, key := range []string{
 			"quota_used",
 			"quota_daily_used",
@@ -702,6 +707,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OpenAIAutoResetCreditStateExtraKey,
 			OpenCodeGoUsageAutoRefreshExtraKey,
 			OpenCodeGoUsageSnapshotExtraKey,
+			// [local] 保留服务端自动续期状态。
+			AccountRenewalAnchorExtraKey,
+			AccountRenewalCyclesExtraKey,
+			AccountRenewalLastAtExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v
@@ -709,6 +718,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		normalizedExtra = prepareCodexFingerprintExtraForUpdate(account, normalizedExtra)
 		account.Extra = normalizedExtra
+		// [local] 更新配置时保持 SQL 与调度热路径的解析口径一致。
+		NormalizeAccountRenewalExtra(account.Extra)
 		if account.Platform == PlatformAntigravity && wasOveragesEnabled && !account.IsOveragesEnabled() {
 			delete(account.Extra, "antigravity_credits_overages") // 清理旧版 overages 运行态
 			// 清除 AICredits 限流 key
@@ -876,6 +887,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			requestedProbeEnabledUpdate,
 			requestedRateSyncEnabledUpdate,
 			input.RateMultiplier,
+			input.ExpiresAt, // [local] Keep omission distinct from an explicit edit.
 		); err != nil {
 			return nil, err
 		}
@@ -928,6 +940,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
+	// [local] 增量管理入口只能修改续期配置。
+	stripAccountRenewalManagedExtra(updates)
+	NormalizeAccountRenewalExtra(updates)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
 	delete(updates, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(updates, UpstreamBillingProbeExtraKey)
@@ -957,6 +972,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// Managed probe/session state may only enter through dedicated typed endpoints.
 	input.Extra = sanitizedCodexFingerprintExtraUpdates(input.Extra)
 	input.Extra = stripOpenAIAutoResetCreditManagedExtra(input.Extra, true)
+	// [local] 批量管理入口只能修改续期配置。
+	stripAccountRenewalManagedExtra(input.Extra)
+	NormalizeAccountRenewalExtra(input.Extra)
 	delete(input.Extra, UpstreamBillingProbeEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingProbeExtraKey)

@@ -146,6 +146,20 @@
       </div>
     </div>
 
+    <!-- [local] 查询上游返回的附加额度池，不猜测具体池名称。 -->
+    <div v-if="data?.additional_rate_limits?.length" class="space-y-2 rounded border border-gray-200 p-2 text-[10px] dark:border-dark-700" data-testid="additional-quota-pools">
+      <p class="font-medium">{{ t('admin.accounts.additionalQuotaPools') }}</p>
+      <div v-for="(pool, index) in data.additional_rate_limits" :key="`${pool.limit_name}-${pool.metered_feature}-${index}`" class="space-y-0.5">
+        <p class="font-medium">{{ pool.limit_name || pool.metered_feature || t('admin.accounts.quotaPoolUnnamed', { index: index + 1 }) }}</p>
+        <template v-for="(window, windowIndex) in [pool.rate_limit?.primary_window, pool.rate_limit?.secondary_window]" :key="windowIndex">
+          <div v-if="window" class="text-gray-500 dark:text-gray-400">
+            <p>{{ t('admin.accounts.quotaPoolWindow', { hours: Number((window.limit_window_seconds / 3600).toFixed(2)), percent: window.used_percent }) }}</p>
+            <p>{{ t('admin.accounts.quotaPoolReset', { time: formatQuotaPoolReset(window) }) }}</p>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- Error / success feedback -->
     <div
       v-if="error"
@@ -188,6 +202,7 @@ import {
   refreshOpenAIQuota,
   resetOpenAIQuota,
   type OpenAIQuotaUsage,
+  type OpenAIRateLimitWindow, // [local]
   type OpenAIQuotaResetResult
 } from '@/api/admin/accounts'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -211,6 +226,11 @@ const resetting = ref(false)
 const error = ref<string | null>(null)
 const data = ref<OpenAIQuotaUsage | null>(null)
 const cachedData = ref<OpenAIQuotaUsage | null>(null)
+// [local] 相对 reset 使用采集时间，避免渲染时不断向后漂移。
+const formatQuotaPoolReset = (window: OpenAIRateLimitWindow): string => {
+  const timestamp = window.reset_at > 0 ? window.reset_at : (data.value?.fetched_at ?? 0) + window.reset_after_seconds
+  return timestamp > 0 && Number.isFinite(timestamp) ? new Date(timestamp * 1000).toLocaleString() : '—'
+}
 const resetMessage = ref<string | null>(null)
 const resetWarning = ref<string | null>(null)
 const showResetConfirm = ref(false)

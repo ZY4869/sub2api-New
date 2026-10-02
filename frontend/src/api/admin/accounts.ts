@@ -568,8 +568,15 @@ export async function getTodayStats(id: number): Promise<WindowStats> {
   return data
 }
 
+// [local] Output images recorded by this instance, not upstream quota.
+export interface AccountImageStats {
+  today_count: number
+  total_count: number
+}
+
 export interface BatchTodayStatsResponse {
   stats: Record<string, WindowStats>
+  image_stats?: Record<string, AccountImageStats>
 }
 
 /**
@@ -577,9 +584,10 @@ export interface BatchTodayStatsResponse {
  * @param accountIds - 账号 ID 列表
  * @returns 以账号 ID（字符串）为键的统计映射
  */
-export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTodayStatsResponse> {
+export async function getBatchTodayStats(accountIds: number[], includeImageStats = false): Promise<BatchTodayStatsResponse> {
   const { data } = await apiClient.post<BatchTodayStatsResponse>('/admin/accounts/today-stats/batch', {
-    account_ids: accountIds
+    account_ids: accountIds,
+    ...(includeImageStats ? { include_image_stats: true } : {})
   })
   return data
 }

@@ -39,6 +39,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// Business layer ProviderSets
 		repository.ProviderSet,
 		service.ProviderSet,
+		// [local] 显式依赖保证续期服务启动，并由 cleanup 管理关停。
+		repository.NewAccountRenewalRepository,
+		service.ProvideAccountRenewalService,
 		securityaudit.ProviderSet,
 		payment.ProviderSet,
 		middleware.ProviderSet,
@@ -97,6 +100,7 @@ func provideCleanup(
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
+	accountRenewal *service.AccountRenewalService, // [local]
 	cnProviderBalanceCheck *service.CNProviderBalanceCheckService,
 	codexVersionSync *service.OpenAICodexVersionSyncService,
 	claudeCodeVersionSync *service.ClaudeCodeVersionSyncService,
@@ -262,6 +266,13 @@ func provideCleanup(
 			}},
 			{"AccountExpiryService", func() error {
 				accountExpiry.Stop()
+				return nil
+			}},
+			// [local] 与过期暂停服务一同停止。
+			{"AccountRenewalService", func() error {
+				if accountRenewal != nil {
+					accountRenewal.Stop()
+				}
 				return nil
 			}},
 			{"CNProviderBalanceCheckService", func() error {

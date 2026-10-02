@@ -6,6 +6,8 @@
     @close="emit('close')"
   >
     <div class="space-y-4">
+      <!-- [local] 定时唤醒会发送真实请求。 -->
+      <p class="text-sm text-amber-700 dark:text-amber-300">{{ t('admin.scheduledTests.quotaNotice') }}</p>
       <!-- Add Plan Button -->
       <div class="flex items-center justify-between">
         <p class="text-sm text-gray-500 dark:text-gray-400">
@@ -60,11 +62,8 @@
                 </div>
               </HelpTooltip>
             </label>
-            <Input
-              v-model="newPlan.cron_expression"
-              :placeholder="'*/30 * * * *'"
-              :hint="t('admin.scheduledTests.cronHelp')"
-            />
+            <!-- [local] 保留未知 cron 并提供常用时间选择。 -->
+            <ScheduleCronField v-model="newPlan.cron_expression" />
           </div>
           <div>
             <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -158,8 +157,9 @@
             <div class="flex flex-1 items-center gap-4">
               <!-- Model -->
               <div class="min-w-0">
+                <!-- [local] 批量计划可留空模型，由各平台默认测试模型执行。 -->
                 <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {{ plan.model_id }}
+                  {{ plan.model_id || t('admin.scheduledTests.platformDefaultModel') }}
                 </div>
                 <div class="mt-0.5 font-mono text-xs text-gray-500 dark:text-gray-400">
                   {{ plan.cron_expression }}
@@ -243,10 +243,11 @@
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   {{ t('admin.scheduledTests.model') }}
                 </label>
+                <!-- [local] 编辑默认模型计划时保持留空。 -->
                 <Select
                   v-model="editForm.model_id"
                   :options="modelOptions"
-                  :placeholder="t('admin.scheduledTests.model')"
+                  :placeholder="t('admin.scheduledTests.defaultModel')"
                   :searchable="modelOptions.length > 5"
                 />
               </div>
@@ -270,11 +271,8 @@
                     </div>
                   </HelpTooltip>
                 </label>
-                <Input
-                  v-model="editForm.cron_expression"
-                  :placeholder="'*/30 * * * *'"
-                  :hint="t('admin.scheduledTests.cronHelp')"
-                />
+                <!-- [local] 同步编辑已有计划。 -->
+                <ScheduleCronField v-model="editForm.cron_expression" />
               </div>
               <div>
                 <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -325,9 +323,10 @@
               >
                 {{ t('common.cancel') }}
               </button>
+              <!-- [local] 空模型表示平台默认，只要求 cron。 -->
               <button
                 @click="handleEdit"
-                :disabled="!editForm.model_id || !editForm.cron_expression || updating"
+                :disabled="!editForm.cron_expression || updating"
                 class="flex items-center gap-1.5 rounded-lg bg-primary-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Icon v-if="updating" name="refresh" size="sm" class="animate-spin" :stroke-width="2" />
@@ -466,6 +465,8 @@
 import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+// [local]
+import ScheduleCronField from './ScheduleCronField.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
@@ -607,7 +608,8 @@ const cancelEdit = () => {
 }
 
 const handleEdit = async () => {
-  if (!editingPlanId.value || !editForm.model_id || !editForm.cron_expression) return
+  // [local] 留空模型的批量计划也能修改 cron；空串由后端保持平台默认。
+  if (!editingPlanId.value || !editForm.cron_expression) return
   updating.value = true
   try {
     const updated = await adminAPI.scheduledTests.update(editingPlanId.value, {

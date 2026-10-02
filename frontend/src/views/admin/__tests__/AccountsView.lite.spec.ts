@@ -67,6 +67,7 @@ const DataTableStub = defineComponent({
     <div>
       <div v-for="row in data" :key="row.id" :data-account-name="row.name">
         <slot name="cell-groups" :row="row" />
+        <slot name="cell-image_stats" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
     </div>
@@ -123,6 +124,7 @@ function mountView(stubActionMenu = true) {
         AccountCapacityCell: true,
         AccountStatusIndicator: true,
         AccountTodayStatsCell: true,
+        AccountImageStatsCell: { props: ['stats', 'error'], template: '<span data-test="image-stats">{{ error ? "error" : stats ? `${stats.today_count}/${stats.total_count}` : "unknown" }}</span>' },
         AccountGroupsCell: AccountGroupsCellStub,
         AccountUsageCell: true,
         UpstreamBillingRateCell: true,
@@ -174,6 +176,23 @@ describe('admin AccountsView lite account list', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it('loads and displays recorded image counts per account by default', async () => {
+    getBatchTodayStats.mockResolvedValue({ stats: {}, image_stats: { '42': { today_count: 3, total_count: 17 } } })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(getBatchTodayStats).toHaveBeenCalledWith([42], true)
+    expect(wrapper.get('[data-test="image-stats"]').text()).toBe('3/17')
+    wrapper.unmount()
+  })
+
+  it('omits the cumulative image query when its column is hidden', async () => {
+    localStorage.setItem('account-hidden-columns', JSON.stringify(['image_stats']))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(getBatchTodayStats).toHaveBeenCalledWith([42], false)
+    wrapper.unmount()
   })
 
   it('keeps lite=1 on the initial list request', async () => {

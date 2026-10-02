@@ -42,8 +42,10 @@
         </button>
       </template>
     </div>
-    <div class="flex gap-2">
+    <div class="flex flex-wrap justify-end gap-2"> <!-- [local] 批量按钮允许换行。 -->
       <template v-if="selectedIds.length > 0">
+        <!-- [local] 批量下发已有定时测试 API。 -->
+        <button @click="$emit('bulk-schedule')" class="btn btn-secondary btn-sm">{{ t('admin.scheduledTests.bulkTitle') }}</button>
         <button @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
         <button @click="$emit('reset-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.resetStatus') }}</button>
         <button @click="$emit('refresh-token')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.refreshToken') }}</button>
@@ -70,6 +72,7 @@ defineProps<{
 }>()
 
 defineEmits([
+  'bulk-schedule', // [local]
   'delete',
   'edit-selected',
   'edit-filtered',

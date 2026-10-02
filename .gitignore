@@ -133,6 +133,12 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+# [local] Track only the existing renewal/image-quota iteration record.
+!docs/ai-governance/
+docs/ai-governance/*
+!docs/ai-governance/iterations/
+docs/ai-governance/iterations/*
+!docs/ai-governance/iterations/ITER-20261001-001-renewal-image-quota.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md

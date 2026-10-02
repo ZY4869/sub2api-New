@@ -184,7 +184,10 @@ func (a *Account) IsSchedulable() bool {
 		return false
 	}
 	now := time.Now()
-	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+	// [local] 自动续期宽限期：已过期但仍在宽限窗口内的账号继续放行，
+	// 否则宽限期内产生不了任何调用，续期所依赖的"调用正常"信号永远不会出现。
+	// IsWithinRenewalGrace 只在账号确实已过期时才解析 extra，不影响常态调度路径开销。
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) && !a.IsWithinRenewalGrace(now) {
 		return false
 	}
 	if a.OverloadUntil != nil && now.Before(*a.OverloadUntil) {
@@ -219,7 +222,9 @@ func (a *Account) IsCredentialUsableForShadow() bool {
 		return false
 	}
 	now := time.Now()
-	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+	// [local] 与 IsSchedulable 保持一致：母账号处于自动续期宽限期时凭据依然有效，
+	// 影子账号可以继续透传，避免宽限期内母可用、影子却被挡的割裂状态。
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) && !a.IsWithinRenewalGrace(now) {
 		return false
 	}
 	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {

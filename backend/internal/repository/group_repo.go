@@ -981,7 +981,8 @@ const (
 	groupAccountAvailableSQL = `a.deleted_at IS NULL
 				AND a.status = 'active'
 				AND a.schedulable = true
-				AND (a.expires_at IS NULL OR a.expires_at > NOW() OR a.auto_pause_on_expired = FALSE)
+				-- [local] 与账号调度查询共享自动续期宽限期。
+				AND (a.expires_at IS NULL OR a.expires_at > NOW() OR a.auto_pause_on_expired = FALSE OR ` + accountRenewalInGraceSQLAliasANow + `)
 				AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW())
 				AND (a.overload_until IS NULL OR a.overload_until <= NOW())
 				AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW())`
@@ -990,7 +991,8 @@ const (
 	groupAccountTemporarilyLimitedSQL = `a.deleted_at IS NULL
 				AND a.status = 'active'
 				AND a.schedulable = true
-				AND (a.expires_at IS NULL OR a.expires_at > NOW() OR a.auto_pause_on_expired = FALSE)
+				-- [local] 与账号调度查询共享自动续期宽限期。
+				AND (a.expires_at IS NULL OR a.expires_at > NOW() OR a.auto_pause_on_expired = FALSE OR ` + accountRenewalInGraceSQLAliasANow + `)
 				AND (
 					a.rate_limit_reset_at > NOW() OR
 					a.overload_until > NOW() OR

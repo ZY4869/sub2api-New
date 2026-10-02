@@ -377,6 +377,7 @@ describe('EditAccountModal', () => {
 
   it('can clear a selected expiry preset before saving the account', async () => {
     const account = buildAccount()
+    account.expires_at = 1788220800 // [local] 清除已保存的过期时间，区别于未改变 null。
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
@@ -1728,6 +1729,39 @@ describe('EditAccountModal OpenAI 自动使用重置卡', () => {
     await wrapper.get('[data-testid="auto-reset-credit-5h-threshold"]').setValue('0')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
+// [local] 自动续期与表单并发保护。
+describe('EditAccountModal renewal', () => {
+  beforeEach(() => {
+    authIsSimpleMode.value = true
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  })
+
+  it('omits an untouched expiry even when the backend renews while the dialog is open', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.expires_at = 1788220800
+    updateAccountMock.mockResolvedValue({ ...account, expires_at: 1790812800 })
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('expires_at')
+    wrapper.unmount()
+  })
+
+  it('saves changed renewal config and retains the configured grace period', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { auto_renewal_enabled: false, auto_renewal_cycle: 'month', auto_renewal_grace_days: 10 }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.get('input[role="switch"]').setValue(true)
+    const cycle = wrapper.findAll('select').find(select => select.find('option[value="year"]').exists())!
+    await cycle.setValue('year')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({ auto_renewal_enabled: true, auto_renewal_cycle: 'year', auto_renewal_grace_days: 10 })
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('expires_at')
     wrapper.unmount()
   })
 })
