@@ -91,7 +91,12 @@ def generate_config(args):
                                 for flag in build.get('ldflags', [])]
     else:
         # Artifacts are supplied through the OSS extra_files mechanism. No build
-        # is repeated on the publishing runner, and release templates stay intact.
+        # is repeated on the publishing runner.
+        repository = os.environ.get('GITHUB_REPOSITORY', '').lower()
+        if repository:
+            data['release']['footer'] = data['release']['footer'].replace(
+                'ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api',
+                f'ghcr.io/{repository}')
         data['before'] = {'hooks': []}
         data['builds'] = [{'id': 'sub2api', 'skip': True}]
         data['archives'] = []

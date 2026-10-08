@@ -79,7 +79,13 @@ class ReleaseMatrixTest(unittest.TestCase):
                 self.assertFalse(data['archives'])
                 self.assertFalse(data['dockers'])
                 self.assertEqual(data['release']['header'], original['release']['header'])
-                self.assertEqual(data['release']['footer'], original['release']['footer'])
+                expected_footer = original['release']['footer']
+                repository = os.environ.get('GITHUB_REPOSITORY', '').lower()
+                if repository:
+                    expected_footer = expected_footer.replace(
+                        'ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api',
+                        f'ghcr.io/{repository}')
+                self.assertEqual(data['release']['footer'], expected_footer)
                 if simple:
                     self.assertTrue(data['checksum']['disable'])
                     self.assertTrue(data['release']['skip_upload'])
@@ -158,6 +164,42 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.assertNotIn('skip/sub2api', log)
         self.assertIn('ghcr.io/exampleowner/sub2api', log)
 
+
+    def test_fork_publication_footer_uses_its_own_ghcr_package(self):
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'ExampleOwner/Sub2API-New'}):
+            for simple in (False, True):
+                with self.subTest(simple=simple):
+                    release.generate_config(argparse.Namespace(mode='publish', simple=simple, output='publisher.yaml'))
+                    footer = yaml.safe_load(Path('publisher.yaml').read_text())['release']['footer']
+                    self.assertIn('docker pull ghcr.io/exampleowner/sub2api-new:{{ .Version }}', footer)
+                    self.assertNotIn('ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api:', footer)
+
+    def test_fork_images_and_manifests_use_its_own_ghcr_package(self):
+        fake_bin = Path('bin')
+        fake_bin.mkdir()
+        docker = fake_bin / 'docker'
+        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n')
+        docker.chmod(0o755)
+        env = {**os.environ, 'PATH': str(fake_bin.resolve()) + os.pathsep + os.environ['PATH'],
+               'DOCKER_LOG': str(Path('docker.log').resolve()), 'RUNNER_TEMP': self.temp.name,
+               'RELEASE_VERSION': '9.8.7', 'RELEASE_SHA': 'a' * 40,
+               'GITHUB_REPOSITORY': 'ExampleOwner/Sub2API-New', 'DRY_RUN': 'false',
+               'SIMPLE_RELEASE': 'false', 'DOCKERHUB_USERNAME': 'skip'}
+        subprocess.run(['bash', str(ROOT / '.github/release-tools/release-images.sh')], env=env, check=True)
+        log = Path('docker.log').read_text()
+        for tag in ('9.8.7-amd64', '9.8.7-arm64', '9.8.7', 'latest', '9.8', '9'):
+            self.assertIn('--tag ghcr.io/exampleowner/sub2api-new:' + tag, log)
+        self.assertIn('--platform linux/arm64', log)
+        self.assertNotIn('ghcr.io/exampleowner/sub2api:', log)
+
+    def test_local_prerelease_plan_includes_linux_arm64(self):
+        args = argparse.Namespace(ref='v0.2.14-local.20261008.1', dry_run=False, simple=False)
+        with patch.dict(os.environ, {'GITHUB_OUTPUT': 'outputs'}), patch.object(
+                subprocess, 'check_output', side_effect=['a' * 40 + '\n', 'a' * 40 + '\n']):
+            release.plan(args)
+        output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
+        self.assertEqual(output['version'], '0.2.14-local.20261008.1')
+        self.assertIn({'goos': 'linux', 'goarch': 'arm64'}, json.loads(output['matrix'])['include'])
 
     def test_published_full_and_simple_image_tags(self):
         fake_bin = Path('bin')
