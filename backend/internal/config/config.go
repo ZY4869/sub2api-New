@@ -1025,6 +1025,10 @@ type GatewayConfig struct {
 	// CodexImageGenerationBridgeEnabled: 是否为 Codex `/v1/responses` 自动注入 image_generation 工具和桥接指令。
 	// 默认关闭，避免纯文本 Codex 请求被意外改写；显式携带 image_generation 工具的请求仍按分组能力转发。
 	CodexImageGenerationBridgeEnabled bool `mapstructure:"codex_image_generation_bridge_enabled"`
+	// [local] DisableOpenAIImageMainPoolIsolation: 关闭生图反向隔离。默认（零值）开启：OpenAI OAuth
+	// 账号仅因普通额度（Codex 主池）耗尽被封时，走原生 /codex/images/* 的生图请求仍可调度到该账号。
+	// 若上游策略变化导致主池耗尽后原生生图也被拒，置 true 即恢复整号限流。
+	DisableOpenAIImageMainPoolIsolation bool `mapstructure:"disable_openai_image_main_pool_isolation"`
 	// ForcedCodexInstructionsTemplateFile: 服务端强制附加到 Codex 顶层 instructions 的模板文件路径。
 	// 模板渲染后会直接覆盖最终 instructions；若需要保留客户端 system 转换结果，请在模板中显式引用 {{ .ExistingInstructions }}。
 	ForcedCodexInstructionsTemplateFile string `mapstructure:"forced_codex_instructions_template_file"`
@@ -2431,6 +2435,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
+	viper.SetDefault("gateway.disable_openai_image_main_pool_isolation", false) // [local]
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)

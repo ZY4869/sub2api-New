@@ -18,6 +18,19 @@ type accountImageStatsBatchReader interface {
 	GetAccountImageStatsBatch(context.Context, []int64, time.Time, time.Time) (map[int64]*AccountImageStats, error)
 }
 
+// AccountImageCountRange 指定账号与统计区间（含两端）。
+type AccountImageCountRange struct {
+	AccountID int64
+	From      time.Time
+	To        time.Time
+}
+
+// accountImageWindowCounter 按时间窗口统计保留日志中的生图张数，供套餐限额与额度统计使用。
+type accountImageWindowCounter interface {
+	CountAccountImagesSince(ctx context.Context, accountID int64, since time.Time, excludeRequestID string) (int64, *time.Time, error)
+	CountAccountImagesInRanges(ctx context.Context, ranges []AccountImageCountRange) ([]int64, error)
+}
+
 func (s *AccountUsageService) GetImageStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*AccountImageStats, error) {
 	ids := make([]int64, 0, len(accountIDs))
 	seen := make(map[int64]bool, len(accountIDs))

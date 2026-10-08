@@ -285,6 +285,12 @@ gateway:
   # 默认 false：保持纯文本 Codex 请求不被改写；客户端显式提供 image_generation tool 时，
   # 仍会在分组允许图片生成的情况下正常转发。
   codex_image_generation_bridge_enabled: false
+  # When an OpenAI OAuth account is rate limited only because its Codex main quota is
+  # exhausted, native /codex/images/* requests (gpt-image-1.5/2/2.5) may still use it.
+  # Set true to restore whole-account rate limiting.
+  # OpenAI OAuth 账号仅因普通额度（Codex 主池）耗尽被限流时，原生生图请求仍可调度到该账号；
+  # 置 true 恢复整号限流（上游策略变化时使用）。
+  disable_openai_image_main_pool_isolation: false
   # Optional: template file used to build the final top-level Codex `instructions`.
   # 可选：用于构建最终 Codex 顶层 `instructions` 的模板文件路径。
   #

@@ -1204,7 +1204,8 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		notifyOpenAIAutoReset(account.ID)
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
 			s.notifyAccountSchedulingBlocked(account, *resetAt, "429")
-			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
+			// [local] 5h/7d 窗口用满即主池耗尽，写标记让原生生图越过。
+			if err := persistOpenAIRateLimit(ctx, s.accountRepo, account, *resetAt, openAIMainPoolReasonCodexWindow); err != nil {
 				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 				return
 			}
@@ -1246,7 +1247,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)
 				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
-				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
+				if err := persistOpenAIRateLimit(ctx, s.accountRepo, account, resetTime, openAIMainPoolReasonFromBody(responseBody)); err != nil { // [local]
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 					return
 				}

@@ -1789,13 +1789,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	channelMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
-	requestModel := strings.TrimSpace(parsed.Model)
-	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
-		requestModel = mapped
-	}
-	if requestModel == "" {
-		requestModel = "gpt-image-2"
-	}
+	requestModel := resolveOpenAIImagesOAuthRequestModel(parsed.Model, channelMappedModel)
 	if err := validateOpenAIImagesModel(requestModel); err != nil {
 		return nil, err
 	}
@@ -1834,6 +1828,8 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		return nil, err
 	}
 	upstreamCtx = withOpenAIImagesSelfBuiltRequest(upstreamCtx)
+	// [local] 429 归属需要知道本次实际走原生端点还是消耗主池的 /codex/responses。
+	upstreamCtx = withOpenAIImagesUpstreamDirect(upstreamCtx, direct)
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, parsed.StickySessionSeed(), false)
 	if err != nil {
 		return nil, err

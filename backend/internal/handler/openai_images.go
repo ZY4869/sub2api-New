@@ -157,6 +157,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
+	// [local] 调度据转发模型预测上游端点，原生生图可越过仅主池的账号级封停。
+	requestCtx = service.WithOpenAIImagesForwardModel(requestCtx, channelMapping.MappedModel)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0

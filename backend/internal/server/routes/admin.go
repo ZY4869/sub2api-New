@@ -403,6 +403,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/:id/today-stats", h.Admin.Account.GetTodayStats)
 		accounts.POST("/usage/batch", h.Admin.Account.GetBatchUsage)
 		accounts.POST("/today-stats/batch", h.Admin.Account.GetBatchTodayStats)
+		accounts.GET("/openai-image-quota-stats", h.Admin.Account.GetOpenAIImageQuotaStats) // [local]
 		accounts.POST("/:id/clear-rate-limit", h.Admin.Account.ClearRateLimit)
 		accounts.POST("/:id/reset-quota", h.Admin.Account.ResetQuota)
 		accounts.GET("/:id/temp-unschedulable", h.Admin.Account.GetTempUnschedulable)
@@ -589,6 +590,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// OpenAI OAuth image-tool unavailable cooldown configuration
 		adminSettings.GET("/openai-images-oauth-unavailable-cooldown", h.Admin.Setting.GetOpenAIImagesOAuthUnavailableCooldownSettings)
 		adminSettings.PUT("/openai-images-oauth-unavailable-cooldown", h.Admin.Setting.UpdateOpenAIImagesOAuthUnavailableCooldownSettings)
+		// [local] 生图额度：主动暂停阈值与按套餐限额
+		adminSettings.GET("/openai-image-quota", h.Admin.Setting.GetOpenAIImageQuotaSettings)
+		adminSettings.PUT("/openai-image-quota", h.Admin.Setting.UpdateOpenAIImageQuotaSettings)
 		// 面板 API 限流配置
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)

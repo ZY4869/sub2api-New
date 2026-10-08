@@ -101,7 +101,7 @@ func mergeAccountRenewalAndImageState(extra map[string]any, raw []byte) (map[str
 	if extra == nil {
 		extra = make(map[string]any)
 	}
-	for _, key := range []string{service.AccountRenewalAnchorExtraKey, service.AccountRenewalCyclesExtraKey, service.AccountRenewalLastAtExtraKey} {
+	for _, key := range []string{service.AccountRenewalAnchorExtraKey, service.AccountRenewalCyclesExtraKey, service.AccountRenewalLastAtExtraKey, service.OpenAIMainPoolRateLimitExtraKey} {
 		delete(extra, key)
 		if value, present, err := decodeAccountExtraJSON(current[key]); err != nil {
 			return nil, err

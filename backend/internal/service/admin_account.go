@@ -711,6 +711,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			AccountRenewalAnchorExtraKey,
 			AccountRenewalCyclesExtraKey,
 			AccountRenewalLastAtExtraKey,
+			// [local] 主池限流标记由 429 处理写入，表单不得覆盖。
+			OpenAIMainPoolRateLimitExtraKey,
+			// [local] 生图池快照与用满观测由服务端维护。
+			codexImageUsageSnapshotKey,
+			codexImageQuotaObservationsKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v

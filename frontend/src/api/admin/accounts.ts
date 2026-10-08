@@ -592,6 +592,67 @@ export async function getBatchTodayStats(accountIds: number[], includeImageStats
   return data
 }
 
+// [local] 生图额度统计：用满样本按套餐汇总，张数来自本站保留的用量日志。
+export interface OpenAIImageQuotaObservation {
+  observed_at: string
+  source: string
+  plan_type?: string
+  window_minutes?: number
+  reset_at?: string
+  used_percent?: number
+  counted_from?: string
+  images_in_window?: number
+}
+
+export interface OpenAIImageQuotaWindowStats {
+  window_minutes: number
+  samples: number
+  min_images: number
+  median_images: number
+  max_images: number
+}
+
+export interface OpenAIImageQuotaPlanStats {
+  plan_type: string
+  account_count: number
+  observation_count: number
+  windows: OpenAIImageQuotaWindowStats[]
+}
+
+export interface OpenAIImageQuotaCurrentWindow {
+  source: string
+  window_minutes: number
+  from: string
+  reset_at: string
+  snapshot_at: string
+  used_percent: number
+  images: number
+  estimated_limit?: number
+  mirror_suspected?: boolean
+}
+
+export interface OpenAIImageQuotaAccountStats {
+  account_id: number
+  name: string
+  plan_type: string
+  main_pool_only_blocked: boolean
+  image_cooldown_until?: string
+  image_cooldown_reason?: string
+  current_window?: OpenAIImageQuotaCurrentWindow
+  observations?: OpenAIImageQuotaObservation[]
+}
+
+export interface OpenAIImageQuotaStats {
+  generated_at: string
+  plans: OpenAIImageQuotaPlanStats[]
+  accounts: OpenAIImageQuotaAccountStats[]
+}
+
+export async function getOpenAIImageQuotaStats(): Promise<OpenAIImageQuotaStats> {
+  const { data } = await apiClient.get<OpenAIImageQuotaStats>('/admin/accounts/openai-image-quota-stats')
+  return data
+}
+
 /**
  * Set account schedulable status
  * @param id - Account ID
@@ -1161,6 +1222,7 @@ export const accountsAPI = {
   getBatchUsage,
   getTodayStats,
   getBatchTodayStats,
+  getOpenAIImageQuotaStats,
   clearRateLimit,
   recoverState,
   resetAccountQuota,

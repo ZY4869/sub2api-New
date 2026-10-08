@@ -508,6 +508,8 @@ type OpenAIGatewayService struct {
 	// 剥离跨账号回带（openai_codex_turn_state.go）。
 	openaiCodexTurnStateOrigins sync.Map
 	openaiCodexTurnStateWrites  atomic.Uint64
+	// [local] 原生生图补充候选：仅主池封停的账号会被常规候选查询过滤掉。
+	openaiImageMainPoolCandidates openAIImageMainPoolCandidateCache
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -539,6 +541,8 @@ func NewOpenAIGatewayService(
 	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
 	if cfg != nil {
 		SetCodexIdentityEnforcementEnabled(!cfg.Gateway.DisableCodexIdentityEnforcement)
+		// [local] 生图反向隔离的判定同样分散在调度纯函数里；零值即开启。
+		SetOpenAIImageMainPoolIsolationEnabled(!cfg.Gateway.DisableOpenAIImageMainPoolIsolation)
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,

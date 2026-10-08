@@ -25,6 +25,11 @@ type OpenAIOAuthHandler struct {
 	rateLimitService   openAIAccountStateRecoverer
 }
 
+// openAIImagePoolUsageApplier 为可选能力，测试替身可不实现。
+type openAIImagePoolUsageApplier interface {
+	ApplyImagePoolUsage(ctx context.Context, accountID int64, usage *service.OpenAIQuotaUsage)
+}
+
 type openAIQuotaService interface {
 	QueryUsage(ctx context.Context, accountID int64) (*service.OpenAIQuotaUsage, error)
 	CacheResetCreditsSnapshot(ctx context.Context, accountID int64, credits *service.OpenAIRateLimitResetCredits) error
@@ -524,6 +529,10 @@ func (h *OpenAIOAuthHandler) RefreshQuota(c *gin.Context) {
 		return
 	}
 	service.NotifyOpenAIAutoResetCredit(accountID)
+	// [local] 刷新会写入状态，顺带保存生图池快照；只读的 QueryQuota 不写。
+	if applier, ok := h.quotaService.(openAIImagePoolUsageApplier); ok {
+		applier.ApplyImagePoolUsage(c.Request.Context(), accountID, usage)
+	}
 
 	refreshResponse := openAIQuotaRefreshResponse{OpenAIQuotaUsage: *usage}
 	if err := h.quotaService.CacheCreditsSnapshot(c.Request.Context(), accountID, usage); err != nil {

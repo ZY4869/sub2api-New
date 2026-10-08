@@ -49,6 +49,15 @@ func (r openAIImagesFailoverAccountRepo) ListSchedulableUngroupedByPlatform(_ co
 	return r.accountsForPlatform(platform), nil
 }
 
+// [local] 生图调度会补查仅主池封停的账号；与生产仓储一样忽略瞬时状态。
+func (r openAIImagesFailoverAccountRepo) ListModelAvailabilityCandidates(_ context.Context, _ *int64, platforms []string, _ bool) ([]service.Account, error) {
+	var out []service.Account
+	for _, platform := range platforms {
+		out = append(out, r.accountsForPlatform(platform)...)
+	}
+	return out, nil
+}
+
 func (r openAIImagesFailoverAccountRepo) accountsForPlatform(platform string) []service.Account {
 	out := make([]service.Account, 0, len(r.accounts))
 	for _, account := range r.accounts {

@@ -3,6 +3,13 @@
     <!-- Rate Limit Display (429) - Two-line layout -->
     <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
+      <!-- [local] 仅普通额度耗尽时，原生生图仍可调度。 -->
+      <span
+        v-if="isMainPoolOnlyRateLimit"
+        class="text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+        :title="t('admin.accounts.mainPoolRateLimitedHint')"
+        data-testid="main-pool-rate-limit"
+      >{{ t('admin.accounts.mainPoolRateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
 
@@ -74,6 +81,7 @@
         class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 whitespace-normal rounded bg-gray-900 px-3 py-2 text-center text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
       >
         {{ t('admin.accounts.status.rateLimitedUntil', { time: formatDateTime(account.rate_limit_reset_at) }) }}
+        <div v-if="isMainPoolOnlyRateLimit" class="mt-1 text-emerald-300">{{ t('admin.accounts.mainPoolRateLimitedHint') }}</div>
         <div
           class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"
         ></div>
@@ -130,6 +138,7 @@
                 ? t('admin.accounts.status.modelCreditOveragesUntil', { model: formatScopeName(item.model), time: formatDateTimeToMinute(item.reset_at) })
                 : t('admin.accounts.status.modelRateLimitedUntil', { model: formatScopeName(item.model), time: formatDateTimeToMinute(item.reset_at) })
           }}
+          <div v-if="imageCooldownReason(item)" data-testid="image-cooldown-reason">{{ imageCooldownReason(item) }}</div>
           <div
             class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"
           ></div>
@@ -164,6 +173,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
+import { isKnownImageCooldownReason } from './imageCooldownReasons'
 
 const { t } = useI18n()
 
@@ -181,17 +191,34 @@ const isRateLimited = computed(() => {
   return new Date(props.account.rate_limit_reset_at) > new Date()
 })
 
+// [local] 仅普通额度（Codex 主池）耗尽：标记与限流截止时间一致才有效，原生生图仍可调度。
+const isMainPoolOnlyRateLimit = computed(() => {
+  if (!isRateLimited.value || props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
+  const extra = props.account.extra as Record<string, unknown> | undefined
+  const marker = extra?.openai_main_pool_rate_limit as { reset_at?: string } | undefined
+  const markerResetAt = marker?.reset_at ? new Date(marker.reset_at).getTime() : Number.NaN
+  const resetAt = new Date(props.account.rate_limit_reset_at as string).getTime()
+  return Number.isFinite(markerResetAt) && Math.abs(markerResetAt - resetAt) <= 2000
+})
+
 type AccountModelStatusItem = {
   kind: 'rate_limit' | 'credits_exhausted' | 'credits_active'
   model: string
   reset_at: string
+  reason?: string
+}
+
+// [local] 生图冷却提示里区分额度用尽、限速、主动暂停与套餐上限。
+const imageCooldownReason = (item: AccountModelStatusItem): string => {
+  if (item.model !== 'openai:image_generation' || !isKnownImageCooldownReason(item.reason)) return ''
+  return t(`admin.accounts.imageCooldownReasons.${item.reason}`)
 }
 
 // Computed: active model statuses (普通模型限流 + 积分耗尽 + 走积分中)
 const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
   const extra = props.account.extra as Record<string, unknown> | undefined
   const modelLimits = extra?.model_rate_limits as
-    | Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
+    | Record<string, { rate_limited_at: string; rate_limit_reset_at: string; reason?: string }>
     | undefined
   const now = new Date()
   const items: AccountModelStatusItem[] = []
@@ -214,7 +241,7 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
       items.push({ kind: 'credits_active', model, reset_at: info.rate_limit_reset_at })
     } else {
       // 普通模型限流
-      items.push({ kind: 'rate_limit', model, reset_at: info.rate_limit_reset_at })
+      items.push({ kind: 'rate_limit', model, reset_at: info.rate_limit_reset_at, reason: info.reason })
     }
   }
 

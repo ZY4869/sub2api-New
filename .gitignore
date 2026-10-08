@@ -140,6 +140,7 @@ docs/ai-governance/*
 docs/ai-governance/iterations/*
 !docs/ai-governance/iterations/ITER-20261001-001-renewal-image-quota.md
 !docs/ai-governance/iterations/ITER-20261003-002-local-push-rollback.md
+!docs/ai-governance/iterations/ITER-20261005-001-image-quota-reverse-isolation.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md

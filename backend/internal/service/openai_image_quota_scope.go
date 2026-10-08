@@ -16,15 +16,17 @@ const codexImageHeadersSnapshotKey = "codex_image_headers_snapshot"
 
 var openAIImagesSnapshotThrottle = newAccountWriteThrottle(time.Minute)
 
-func isOpenAIImageScopedRateLimit(ctx context.Context, account *Account, status int, body []byte) bool {
+func isOpenAIImageScopedRateLimit(ctx context.Context, account *Account, status int, headers http.Header, body []byte) bool {
 	if status != http.StatusTooManyRequests {
 		return false
 	}
 	if isOpenAIImageRateLimitError(status, body) {
 		return true
 	}
+	// Luna 回退走 /codex/responses，主池耗尽要交给账号级路径并写主池标记。
 	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth &&
-		(OpenAIImagesEndpointFromContext(ctx) || isOpenAIImagesSelfBuiltRequest(ctx))
+		(OpenAIImagesEndpointFromContext(ctx) || isOpenAIImagesSelfBuiltRequest(ctx)) &&
+		!isOpenAIImagesResponsesMainPoolExhaustion(ctx, headers, body)
 }
 
 func isOpenAIImageQuotaBody(body []byte) bool {
@@ -82,7 +84,7 @@ func openAIImageScopedCooldown(headers http.Header, body []byte, now time.Time) 
 
 func (s *RateLimitService) HandleOpenAIImageScopedRateLimit(ctx context.Context, account *Account, status int, headers http.Header, body []byte) bool {
 	if s == nil || s.accountRepo == nil || account == nil || account.Platform != PlatformOpenAI ||
-		!account.ShouldHandleErrorCode(status) || !isOpenAIImageScopedRateLimit(ctx, account, status, body) {
+		!account.ShouldHandleErrorCode(status) || !isOpenAIImageScopedRateLimit(ctx, account, status, headers, body) {
 		return false
 	}
 	reset, reason := openAIImageScopedCooldown(headers, body, time.Now())
@@ -102,9 +104,12 @@ func (s *OpenAIGatewayService) newOpenAIImagesAccountFailoverError(ctx context.C
 	if strings.Contains(endpoint, "/codex/images/") {
 		s.recordOpenAIImagesHeadersSnapshot(ctx, account, endpoint, status, headers)
 	}
-	if isOpenAIImageScopedRateLimit(ctx, account, status, body) {
+	if isOpenAIImageScopedRateLimit(ctx, account, status, headers, body) {
 		now := time.Now()
-		reset, _ := openAIImageScopedCooldown(headers, body, now)
+		reset, reason := openAIImageScopedCooldown(headers, body, now)
+		if reason == openAIImageQuotaReason && strings.Contains(endpoint, "/codex/images/") {
+			s.recordOpenAIImageNative429Exhaustion(account, headers, reset, now)
+		}
 		if existing := account.modelRateLimitResetAt(openAIImageGenerationRateLimitKey); existing != nil && existing.After(reset) {
 			reset = *existing
 		}
@@ -161,6 +166,11 @@ func (s *OpenAIGatewayService) recordOpenAIImagesHeadersSnapshot(ctx context.Con
 	}
 	snapshot := ParseCodexRateLimitHeaders(headers)
 	now := time.Now()
+	mirrorSuspected := false
+	if snapshot != nil {
+		// 主动暂停与用满观测不受诊断快照节流影响。
+		mirrorSuspected = s.observeOpenAIImagePoolHeaders(ctx, account, snapshot, now)
+	}
 	if snapshot == nil || !openAIImagesSnapshotThrottle.Allow(account.ID, now) {
 		return
 	}
@@ -173,6 +183,7 @@ func (s *OpenAIGatewayService) recordOpenAIImagesHeadersSnapshot(ctx context.Con
 		"secondary_reset_after_seconds": snapshot.SecondaryResetAfterSeconds,
 		"secondary_window_minutes":      snapshot.SecondaryWindowMinutes,
 		"status_code":                   status, "endpoint": endpoint, "collected_at": now.UTC().Format(time.RFC3339),
+		"mirror_suspected": mirrorSuspected,
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()

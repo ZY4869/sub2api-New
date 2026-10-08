@@ -33,7 +33,7 @@ func TestImageScopedRateLimitMatrix(t *testing.T) {
 		{"not 429", PlatformOpenAI, AccountTypeOAuth, WithOpenAIImagesEndpoint(nil), `gpt-image`, 502, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, isOpenAIImageScopedRateLimit(tc.ctx, &Account{Platform: tc.platform, Type: tc.kind}, tc.status, []byte(tc.body)))
+			require.Equal(t, tc.want, isOpenAIImageScopedRateLimit(tc.ctx, &Account{Platform: tc.platform, Type: tc.kind}, tc.status, nil, []byte(tc.body)))
 		})
 	}
 }
@@ -153,14 +153,27 @@ func TestImagesInBandQuotaKeepsResponseSemantics(t *testing.T) {
 	}
 }
 
+// imageSnapshotCooldownRepo 记录用满响应头触发的生图主动暂停。
+type imageSnapshotCooldownRepo struct {
+	openAICodexSnapshotAsyncRepo
+	modelRateLimits []string
+}
+
+func (r *imageSnapshotCooldownRepo) SetModelRateLimit(_ context.Context, _ int64, scope string, _ time.Time, reason ...string) error {
+	r.modelRateLimits = append(r.modelRateLimits, scope+":"+strings.Join(reason, ","))
+	return nil
+}
+
 func TestImagesSnapshotSeparateFromCodexUsageSnapshot(t *testing.T) {
-	repo := &openAICodexSnapshotAsyncRepo{updateExtraCh: make(chan map[string]any, 5)}
+	repo := &imageSnapshotCooldownRepo{openAICodexSnapshotAsyncRepo: openAICodexSnapshotAsyncRepo{updateExtraCh: make(chan map[string]any, 5)}}
 	svc := &OpenAIGatewayService{accountRepo: repo, codexSnapshotThrottle: newAccountWriteThrottle(time.Minute)}
 	a := &Account{ID: 743023, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	t.Cleanup(func() {
-		openAIImagesSnapshotThrottle.mu.Lock()
-		delete(openAIImagesSnapshotThrottle.lastByID, a.ID)
-		openAIImagesSnapshotThrottle.mu.Unlock()
+		for _, throttle := range []*accountWriteThrottle{openAIImagesSnapshotThrottle, openAIImageObservationThrottle} {
+			throttle.mu.Lock()
+			delete(throttle.lastByID, a.ID)
+			throttle.mu.Unlock()
+		}
 	})
 	headers := http.Header{}
 	headers.Set("x-codex-primary-used-percent", "100")
@@ -174,6 +187,8 @@ func TestImagesSnapshotSeparateFromCodexUsageSnapshot(t *testing.T) {
 	snapshot := updates[codexImageHeadersSnapshotKey].(map[string]any)
 	require.Equal(t, 200, snapshot["status_code"])
 	require.Equal(t, result.UpstreamEndpoint, snapshot["endpoint"])
+	// [local] 生图池用满只暂停生图，不写主池状态。
+	require.Contains(t, repo.modelRateLimits, openAIImageGenerationRateLimitKey+":"+openAIImageQuotaPauseReason)
 	svc.RecordOpenAIImagesResponseSnapshot(context.Background(), a, result)
 	require.Empty(t, repo.updateExtraCh)
 	result.UpstreamEndpoint = "/backend-api/codex/responses"

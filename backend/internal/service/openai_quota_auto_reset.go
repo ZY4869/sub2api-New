@@ -601,6 +601,8 @@ func (s *OpenAIQuotaAutoResetService) persistFreshUsage(ctx context.Context, acc
 			return err
 		}
 	}
+	// [local] 同一份 /wham/usage 中的生图池：快照、用满冷却与观测，失败只记日志。
+	applyOpenAIImagePoolUsage(ctx, s.accountRepo, accountID, usage, now)
 	return s.quota.CacheResetCreditsSnapshot(ctx, accountID, usage.RateLimitResetCredits)
 }
 

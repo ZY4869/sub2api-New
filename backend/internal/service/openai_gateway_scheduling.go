@@ -405,8 +405,9 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if account.Platform != platform || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
-	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
-		if account.IsSchedulable() {
+	// [local] 原生生图请求可越过仅主池的账号级封停，模型级限流仍生效。
+	if !openAIAccountSchedulableForModel(ctx, account, requestedModel) {
+		if openAIAccountSchedulable(ctx, account) {
 			return "model_rate_limited"
 		}
 		return "not_schedulable"
@@ -529,7 +530,8 @@ func grokQuotaSnapshotStaleForPause(snapshot *xai.QuotaSnapshot, now time.Time) 
 }
 
 func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision) {
-	if account == nil || !account.IsOpenAI() {
+	// [local] 阈值只保护 codex 主池；原生生图走独立额度池，不受其约束。
+	if account == nil || !account.IsOpenAI() || isOpenAINativeImageRequest(ctx, account) {
 		return false, openAIQuotaAutoPauseDecision{}
 	}
 	// 自动用卡有独立阈值：达到消费阈值时必须先退出调度；仅达到普通暂停阈值时，
@@ -979,7 +981,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 检查账号是否需要清理粘性会话
 	// Check if sticky session should be cleared
-	if shouldClearStickySession(account, requestedModel) {
+	if shouldClearOpenAIStickySession(ctx, account, requestedModel) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -993,7 +995,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
-	if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
+	if s.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, account, requestedModel) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -1212,7 +1214,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
 			if err == nil {
-				clearSticky := shouldClearStickySession(account, requestedModel)
+				clearSticky := shouldClearOpenAIStickySession(ctx, account, requestedModel)
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
@@ -1222,7 +1224,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
+					} else if s.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, account, requestedModel) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1291,7 +1293,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			filterStats.exclude("shadow_parent_unhealthy")
 			continue
 		}
-		if s.isOpenAIAccountRequestRuntimeBlocked(acc, requestedModel) {
+		if s.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, acc, requestedModel) {
 			filterStats.exclude("runtime_blocked")
 			continue
 		}
@@ -1505,6 +1507,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		if err != nil {
 			return accounts, err
 		}
+		accounts = s.appendOpenAIImageMainPoolCandidates(ctx, groupID, platform, accounts) // [local]
 		accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
 		if platform == PlatformGrok {
 			accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
@@ -1523,6 +1526,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
+	accounts = s.appendOpenAIImageMainPoolCandidates(ctx, groupID, platform, accounts) // [local]
 	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
 	if platform == PlatformGrok {
 		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
@@ -1569,7 +1573,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 	if !parentHealthyForShadow(fresh, s.parentAccountLookup(ctx)) {
 		return nil
 	}
-	if s.isOpenAIAccountRequestRuntimeBlocked(fresh, requestedModel) {
+	if s.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, fresh, requestedModel) {
 		return nil
 	}
 	if s.isOpenAIAccountBlockedBySchedulingThreshold(ctx, fresh) {
@@ -1646,7 +1650,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if !parentHealthyForShadow(latest, s.parentAccountLookup(ctx)) {
 		return nil
 	}
-	if s.isOpenAIAccountRequestRuntimeBlocked(latest, requestedModel) {
+	if s.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, latest, requestedModel) {
 		return nil
 	}
 	if s.isOpenAIAccountBlockedBySchedulingThreshold(ctx, latest) {
@@ -1716,6 +1720,10 @@ func (s *OpenAIGatewayService) filterOpenAIAccountsBySchedulingThreshold(ctx con
 
 func (s *OpenAIGatewayService) isOpenAIAccountBlockedBySchedulingThreshold(ctx context.Context, account *Account) bool {
 	if s == nil || s.rateLimitService == nil || account == nil {
+		return false
+	}
+	// [local] OpenAI 调度阈值只看 codex 5h/7d 主池；原生生图既不受约束，也不替文本写入暂停。
+	if isOpenAINativeImageRequest(ctx, account) {
 		return false
 	}
 	return s.rateLimitService.ApplyAccountSchedulingThreshold(ctx, account)

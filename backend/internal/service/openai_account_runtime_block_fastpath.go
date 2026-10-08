@@ -127,7 +127,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 
 	// [local] 专用生图 429 只冷却生图能力，不进入整号熔断和通用快照路径。
-	if isOpenAIImageScopedRateLimit(ctx, account, statusCode, responseBody) {
+	if isOpenAIImageScopedRateLimit(ctx, account, statusCode, headers, responseBody) {
 		if s != nil && s.rateLimitService != nil {
 			_ = s.rateLimitService.HandleOpenAIImageScopedRateLimit(stateCtx, account, statusCode, headers, responseBody)
 		}

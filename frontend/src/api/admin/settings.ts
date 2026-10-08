@@ -1340,6 +1340,35 @@ export async function updateRateLimit429CooldownSettings(
   return data;
 }
 
+// ==================== [local] OpenAI Image Quota Settings ====================
+
+export interface OpenAIImagePlanLimitRule {
+  window_minutes: number;
+  max_images: number;
+}
+
+export interface OpenAIImageQuotaSettings {
+  pause_threshold_percent: number;
+  plan_limits: Record<string, OpenAIImagePlanLimitRule[]>;
+}
+
+export async function getOpenAIImageQuotaSettings(): Promise<OpenAIImageQuotaSettings> {
+  const { data } = await apiClient.get<OpenAIImageQuotaSettings>(
+    "/admin/settings/openai-image-quota",
+  );
+  return data;
+}
+
+export async function updateOpenAIImageQuotaSettings(
+  settings: OpenAIImageQuotaSettings,
+): Promise<OpenAIImageQuotaSettings> {
+  const { data } = await apiClient.put<OpenAIImageQuotaSettings>(
+    "/admin/settings/openai-image-quota",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Panel Rate Limit Settings ====================
 
 /**
@@ -1599,6 +1628,8 @@ export const settingsAPI = {
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getOpenAIImageQuotaSettings,
+  updateOpenAIImageQuotaSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
   getStreamTimeoutSettings,

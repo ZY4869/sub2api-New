@@ -474,6 +474,17 @@ type OpenAIImagesOAuthUnavailableCooldownSettings struct {
 	CooldownMinutes int `json:"cooldown_minutes"`
 }
 
+// [local] OpenAIImageQuotaSettings 生图额度设置 DTO：主动暂停阈值与按套餐的滚动窗口限额。
+type OpenAIImageQuotaSettings struct {
+	PauseThresholdPercent int                                   `json:"pause_threshold_percent"`
+	PlanLimits            map[string][]OpenAIImagePlanLimitRule `json:"plan_limits"`
+}
+
+type OpenAIImagePlanLimitRule struct {
+	WindowMinutes int `json:"window_minutes"`
+	MaxImages     int `json:"max_images"`
+}
+
 // PanelRateLimitSettings 面板 API 限流配置 DTO
 type PanelRateLimitSettings struct {
 	Enabled     bool `json:"enabled"`

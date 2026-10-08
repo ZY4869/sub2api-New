@@ -39,6 +39,19 @@ func usesCodexDirectImages(model string) bool {
 	}
 }
 
+// [local] resolveOpenAIImagesOAuthRequestModel 返回 OAuth 生图的入站模型：渠道映射优先，缺省 gpt-image-2。
+// 转发与调度预测共用，保证预测的上游端点与实际一致。
+func resolveOpenAIImagesOAuthRequestModel(parsedModel, channelMappedModel string) string {
+	requestModel := strings.TrimSpace(parsedModel)
+	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
+		requestModel = mapped
+	}
+	if requestModel == "" {
+		requestModel = "gpt-image-2"
+	}
+	return requestModel
+}
+
 // 正式转发与后台测试共用同一份端点选择和请求构造。
 func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([]byte, string, error) {
 	if parsed == nil {

@@ -2348,17 +2348,20 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	persistOpenAI429PlanType(ctx, s.accountRepo, account, body)
 
 	var resetAt *time.Time
+	mainPoolReason := "" // [local] 与 handle429 同口径写主池标记。
 	if calculated := calculateOpenAI429ResetTime(headers); calculated != nil {
 		resetAt = calculated
+		mainPoolReason = openAIMainPoolReasonCodexWindow
 	} else if unixTs := parseOpenAIRateLimitResetTime(body); unixTs != nil {
 		t := time.Unix(*unixTs, 0)
 		resetAt = &t
+		mainPoolReason = openAIMainPoolReasonFromBody(body)
 	}
 	if resetAt == nil {
 		return
 	}
 
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
+	if err := persistOpenAIRateLimit(ctx, s.accountRepo, account, *resetAt, mainPoolReason); err != nil {
 		return
 	}
 

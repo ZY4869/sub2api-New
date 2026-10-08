@@ -227,4 +227,48 @@ describe('AccountStatusIndicator', () => {
     // AICredits 积分耗尽状态应显示
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
+
+  // [local] 仅普通额度限流时提示原生生图仍可调度；标记失效则按整号限流显示。
+  it.each([
+    ['2099-10-05T10:00:01.500Z', true],
+    ['2099-10-05T12:00:00Z', false],
+  ])('普通额度标记 %s 与限流截止时间一致时才提示生图可用', (markerResetAt, visible) => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          type: 'oauth',
+          rate_limit_reset_at: '2099-10-05T10:00:00Z',
+          extra: { openai_main_pool_rate_limit: { reset_at: markerResetAt } }
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.find('[data-testid="main-pool-rate-limit"]').exists()).toBe(visible)
+  })
+
+  it('生图冷却提示显示冷却原因', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          type: 'oauth',
+          extra: {
+            model_rate_limits: {
+              'openai:image_generation': {
+                rate_limited_at: '2099-10-05T00:00:00Z',
+                rate_limit_reset_at: '2099-10-05T01:00:00Z',
+                reason: 'openai_image_plan_limit'
+              }
+            }
+          }
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.imageQuotaScope')
+    expect(wrapper.get('[data-testid="image-cooldown-reason"]').text()).toBe('admin.accounts.imageCooldownReasons.openai_image_plan_limit')
+  })
 })

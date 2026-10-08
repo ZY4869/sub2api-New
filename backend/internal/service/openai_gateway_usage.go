@@ -352,6 +352,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			requestID = stable
 		}
 	}
+	// [local] 生图入账后异步核对套餐生图上限；本次日志可能尚未落库，按 request_id 另行计入。
+	s.scheduleOpenAIImagePlanLimitCheck(account, requestID, result.ImageCount)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model

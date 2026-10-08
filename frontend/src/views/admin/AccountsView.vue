@@ -133,6 +133,13 @@
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
                       </button>
+                      <!-- [local] 生图额度：按套餐统计与限额。 -->
+                      <button class="account-tools-menu-item" data-testid="open-image-quota" @click="openImageQuota">
+                        <span class="account-tools-menu-icon bg-pink-50 text-pink-600 dark:bg-pink-900/30 dark:text-pink-300">
+                          <Icon name="chart" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.accounts.imageQuota.menu') }}</span>
+                      </button>
 
                       <!-- [local] 账号表紧凑模式持久化到当前浏览器。 -->
                       <button class="account-tools-menu-item" role="switch" :aria-checked="compact" @click="compact = !compact">
@@ -501,6 +508,7 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <OpenAIImageQuotaModal :show="showImageQuota" @close="showImageQuota = false" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
@@ -552,6 +560,7 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
+import OpenAIImageQuotaModal from '@/components/admin/account/OpenAIImageQuotaModal.vue' // [local]
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
@@ -631,6 +640,7 @@ const showTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
+const showImageQuota = ref(false) // [local]
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -1400,7 +1410,8 @@ const isAnyModalOpen = computed(() => {
     showStats.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
-    showTLSFingerprintProfiles.value
+    showTLSFingerprintProfiles.value ||
+    showImageQuota.value
   )
 })
 
@@ -1569,6 +1580,12 @@ const openErrorPassthrough = () => {
 const openTLSFingerprintProfiles = () => {
   closeAccountToolsDropdown()
   showTLSFingerprintProfiles.value = true
+}
+
+// [local] 生图额度（按套餐）
+const openImageQuota = () => {
+  closeAccountToolsDropdown()
+  showImageQuota.value = true
 }
 
 const syncPendingListChanges = async () => {

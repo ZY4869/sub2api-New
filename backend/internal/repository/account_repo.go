@@ -70,6 +70,10 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 	"codex_referral_snapshot":      {},
 	"grok_billing_snapshot":        {},
 	"session_window_utilization":   {},
+
+	// [local] 生图池快照与用满观测只供统计展示，暂停经 model_rate_limits 生效。
+	"codex_image_usage_snapshot":     {},
+	"codex_image_quota_observations": {},
 }
 
 const postgresParameterBatchSize = 50000
@@ -698,6 +702,7 @@ func lockAndMergeAccountProbeExtra(
 				'auto_renewal_anchor_at', extra->'auto_renewal_anchor_at',
 				'auto_renewal_cycles', extra->'auto_renewal_cycles',
 				'auto_renewal_last_at', extra->'auto_renewal_last_at',
+				'openai_main_pool_rate_limit', extra->'openai_main_pool_rate_limit',
 				'openai:image_generation', extra->'model_rate_limits'->'openai:image_generation')
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
